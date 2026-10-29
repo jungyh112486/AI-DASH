@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>설비 상태 모니터링</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  color-scheme: light;
+  --bg:#D5D9DD; --panel:#E9ECEE; --panel-2:#F3F4F5; --line:#BDC4CA;
+  --ink:#1D2830; --ink-2:#3E5363; --muted:#5F6C76; --track:#CBD1D6;
+  --run:#2E7D4F; --warn:#C98E00; --warn-bg:#F6E7B8; --alarm:#C4122F; --alarm-bg:#F5D0D6;
+  --idle:#7D8790; --accent:#2F5D7C; --accent-soft:rgba(47,93,124,.12);
+  --num:"Barlow Condensed","Arial Narrow","Roboto Condensed",sans-serif;
+  --txt:"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    color-scheme: dark;
+    --bg:#22282D; --panel:#2B3238; --panel-2:#323A41; --line:#434D55;
+    --ink:#E3E7EA; --ink-2:#A9BFCF; --muted:#94A0A9; --track:#3C454D;
+    --run:#4CB57D; --warn:#F2B630; --warn-bg:#4A3E1C; --alarm:#FF5468; --alarm-bg:#4E2229;
+    --idle:#8B959D; --accent:#86B6D8; --accent-soft:rgba(134,182,216,.14);
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--txt);font-size:14px;line-height:1.5;
+  padding:env(safe-area-inset-top,0) 0 env(safe-area-inset-bottom,0)}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.wrap{max-width:1440px;margin:0 auto;padding:20px clamp(12px,2.4vw,28px) 40px}
+
+/* header */
+.top{display:flex;flex-wrap:wrap;align-items:flex-end;gap:16px 28px;justify-content:space-between;margin-bottom:16px}
+.title h1{font-size:22px;font-weight:700;margin:0;letter-spacing:-.01em}
+.title p{margin:2px 0 0;color:var(--muted);font-size:13px}
+.conn{display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px}
+.lamp{width:10px;height:10px;border-radius:50%;display:inline-block;background:var(--idle);flex:none}
+.lamp.live{background:var(--run);box-shadow:0 0 0 0 var(--run);animation:pulse 2s infinite}
+.lamp.err{background:var(--warn)}
+@keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--run) 60%,transparent)}70%{box-shadow:0 0 0 8px transparent}100%{box-shadow:0 0 0 0 transparent}}
+.conn-state{display:flex;align-items:center;gap:8px;font-weight:500}
+.meta{color:var(--muted);font-size:12.5px}
+.meta b{color:var(--ink);font-family:var(--num);font-size:15px;font-weight:600;letter-spacing:.02em}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:4px;overflow:hidden;background:var(--panel)}
+.seg button{border:0;background:none;padding:5px 11px;cursor:pointer;font-size:12.5px}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+.ring{width:26px;height:26px}
+.ring circle{fill:none;stroke-width:3}
+.ring .bgc{stroke:var(--track)}
+.ring .fg{stroke:var(--accent);stroke-linecap:round;transition:stroke-dashoffset 1s linear}
+.btn{border:1px solid var(--line);background:var(--panel);padding:5px 12px;border-radius:4px;cursor:pointer;font-size:12.5px}
+.btn:hover{background:var(--panel-2)}
+
+.banner{display:none;margin:0 0 14px;padding:10px 14px;border-left:4px solid var(--warn);background:var(--warn-bg);border-radius:0 4px 4px 0;font-size:13px}
+.banner.show{display:block}
+
+/* fleet summary */
+.fleet{display:grid;grid-template-columns:minmax(220px,300px) 1fr;gap:14px;margin-bottom:14px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:6px}
+.summary{padding:16px 18px;display:flex;flex-direction:column;gap:10px}
+.summary h2,.ph h2{font-size:14px;font-weight:700;margin:0}
+.counts{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.count{text-align:left}
+.count .n{font-family:var(--num);font-size:34px;font-weight:700;line-height:1}
+.count .l{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:5px}
+.count .l i{width:8px;height:8px;border-radius:2px;display:inline-block}
+.fleetbar{display:flex;height:8px;border-radius:2px;overflow:hidden;background:var(--track)}
+.fleetbar span{display:block;height:100%}
+
+.equips{display:flex;gap:10px;overflow-x:auto;padding:2px 2px 6px}
+.eq{flex:0 0 190px;text-align:left;border:1px solid var(--line);background:var(--panel);border-radius:6px;padding:12px 14px;cursor:pointer;position:relative}
+.eq[aria-pressed="true"]{border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}
+.eq .row1{display:flex;justify-content:space-between;align-items:center}
+.eq .id{font-family:var(--num);font-size:22px;font-weight:700;letter-spacing:.02em}
+.chip{font-size:11.5px;font-weight:700;padding:1px 7px;border-radius:3px;background:var(--track);color:var(--ink)}
+.chip.run{background:var(--run);color:#fff}
+.chip.warn{background:var(--warn);color:#1D1600}
+.chip.alarm{background:var(--alarm);color:#fff}
+.eq .health{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:12px;color:var(--muted)}
+.eq .hbar{flex:1;height:5px;background:var(--track);border-radius:2px;overflow:hidden}
+.eq .hbar span{display:block;height:100%;background:var(--ink-2)}
+.eq .hnum{font-family:var(--num);font-size:16px;font-weight:600;color:var(--ink);width:28px;text-align:right}
+.eq .mini{display:flex;gap:12px;margin-top:6px;font-size:12px;color:var(--muted)}
+.eq .mini b{font-family:var(--num);font-size:15px;font-weight:600;color:var(--ink)}
+.eq .mini b.warn{color:var(--warn)} .eq .mini b.alarm{color:var(--alarm)}
+
+/* gauges */
+.sel-head{display:flex;align-items:baseline;gap:12px;margin:20px 0 10px;flex-wrap:wrap}
+.sel-head .big{font-family:var(--num);font-size:44px;font-weight:700;line-height:.9;letter-spacing:.01em}
+.sel-head .sub{color:var(--muted);font-size:13px}
+.gauges{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}
+.gcard{padding:12px 14px 12px;position:relative}
+.gcard.warn{border-color:var(--warn);box-shadow:inset 0 3px 0 var(--warn)}
+.gcard.alarm{border-color:var(--alarm);box-shadow:inset 0 3px 0 var(--alarm);background:color-mix(in srgb,var(--alarm-bg) 45%,var(--panel))}
+.ghead{display:flex;justify-content:space-between;align-items:baseline}
+.ghead .nm{font-weight:700;font-size:14px}
+.ghead .un{color:var(--muted);font-size:12px}
+.gauge{width:100%;height:auto;display:block;margin-top:2px}
+.g-track{fill:none;stroke:var(--track);stroke-width:12}
+.g-val{fill:none;stroke:var(--ink-2);stroke-width:12;transition:stroke .3s}
+.g-val.warn{stroke:var(--warn)} .g-val.alarm{stroke:var(--alarm)}
+.g-band-w{fill:none;stroke:var(--warn);stroke-width:4}
+.g-band-a{fill:none;stroke:var(--alarm);stroke-width:4}
+.g-tick{stroke:var(--muted);stroke-width:1.2}
+.g-tl{fill:var(--muted);font-family:var(--num);font-size:11px}
+.g-needle{transform-box:view-box;transform-origin:100px 100px;transition:transform .7s cubic-bezier(.3,1.3,.5,1)}
+.g-needle line{stroke:var(--ink);stroke-width:2.5;stroke-linecap:round}
+.g-needle circle{fill:var(--ink)}
+.g-num{fill:var(--ink);font-family:var(--num);font-weight:700;font-size:36px}
+.g-num.warn{fill:var(--warn)} .g-num.alarm{fill:var(--alarm)}
+.gfoot{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+.delta{font-family:var(--num);font-size:14px;font-weight:600}
+.spark{width:84px;height:24px}
+.spark path{fill:none;stroke:var(--ink-2);stroke-width:1.5}
+.limit{font-size:11.5px;color:var(--muted);margin-top:2px}
+
+/* lower */
+.lower{display:grid;grid-template-columns:minmax(0,2fr) minmax(280px,1fr);gap:14px;margin-top:14px}
+.ph{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:14px 16px 0}
+.chartbox{position:relative;padding:6px 8px 10px}
+#trend svg{display:block;width:100%}
+.ax{fill:var(--muted);font-family:var(--num);font-size:12px}
+.grid line{stroke:var(--line);stroke-width:1}
+.tline{fill:none;stroke:var(--accent);stroke-width:2;stroke-linejoin:round}
+.tarea{fill:var(--accent-soft)}
+.thr-w{stroke:var(--warn);stroke-dasharray:5 4;stroke-width:1.4}
+.thr-a{stroke:var(--alarm);stroke-dasharray:5 4;stroke-width:1.4}
+.mean{stroke:var(--muted);stroke-dasharray:2 3}
+.thr-lab{font-size:11px;font-family:var(--txt)}
+.hov line{stroke:var(--ink);stroke-width:1}
+.tip{position:absolute;pointer-events:none;background:var(--ink);color:var(--bg);padding:6px 9px;border-radius:4px;font-size:12px;white-space:nowrap;display:none;z-index:2}
+.tip b{font-family:var(--num);font-size:16px}
+.stats{width:100%;border-collapse:collapse;font-size:13px}
+.statwrap{overflow-x:auto;padding:4px 16px 16px}
+.stats th{text-align:right;font-weight:500;color:var(--muted);padding:6px 8px;border-bottom:1px solid var(--line);font-size:12px}
+.stats th:first-child,.stats td:first-child{text-align:left}
+.stats td{text-align:right;padding:7px 8px;border-bottom:1px solid var(--line);font-family:var(--num);font-size:16px;font-weight:500}
+.stats td:first-child{font-family:var(--txt);font-size:13px;font-weight:500}
+.stats tr:last-child td{border-bottom:0}
+.stats .warn{color:var(--warn)} .stats .alarm{color:var(--alarm)}
+.side{display:flex;flex-direction:column;gap:14px}
+.avail{padding:16px}
+.avail .pct{font-family:var(--num);font-size:56px;font-weight:700;line-height:1}
+.avail .pct small{font-size:24px;margin-left:2px}
+.stack{display:flex;height:14px;border-radius:2px;overflow:hidden;margin:12px 0 8px;background:var(--track)}
+.stack span{height:100%}
+.legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--muted)}
+.legend i{width:9px;height:9px;border-radius:2px;display:inline-block;margin-right:5px;vertical-align:-1px}
+.events{list-style:none;margin:0;padding:6px 0 8px;max-height:420px;overflow-y:auto}
+.events li{display:grid;grid-template-columns:4px 54px 46px 1fr;gap:10px;align-items:center;padding:7px 16px;font-size:13px}
+.events li+li{border-top:1px solid var(--line)}
+.events .mk{width:4px;height:22px;border-radius:2px;background:var(--idle)}
+.events .mk.warn{background:var(--warn)} .events .mk.alarm{background:var(--alarm)} .events .mk.run{background:var(--run)}
+.events .tm{font-family:var(--num);font-size:14px;color:var(--muted)}
+.events .eqn{font-family:var(--num);font-size:14px;font-weight:600}
+.empty{padding:18px 16px;color:var(--muted);font-size:13px}
+.foot{margin-top:18px;color:var(--muted);font-size:12px}
+.foot a{color:var(--accent)}
+
+@media (max-width:900px){
+  .fleet{grid-template-columns:1fr}
+  .lower{grid-template-columns:1fr}
+}
+@media (prefers-reduced-motion:reduce){
+  .g-needle,.ring .fg{transition:none}
+  .lamp.live{animation:none}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div class="title">
+      <h1>설비 상태 모니터링</h1>
+      <p>온도, 진동, 압력, 전류, 회전수를 구글 시트에서 주기적으로 읽어옵니다</p>
+    </div>
+    <div class="conn">
+      <div class="conn-state"><span class="lamp" id="lamp"></span><span id="connText">연결 중</span></div>
+      <div class="meta">최신 데이터 <b id="lastTs">-</b></div>
+      <div class="meta">수신 <b id="rowCount">0</b>행</div>
+      <div class="seg" role="group" aria-label="데이터 모드">
+        <button data-mode="live" aria-pressed="true">실시간</button>
+        <button data-mode="replay" aria-pressed="false">재생</button>
+      </div>
+      <div class="seg" role="group" aria-label="갱신 주기" id="intervalSeg">
+        <button data-iv="5" aria-pressed="false">5초</button>
+        <button data-iv="10" aria-pressed="true">10초</button>
+        <button data-iv="30" aria-pressed="false">30초</button>
+        <button data-iv="60" aria-pressed="false">60초</button>
+      </div>
+      <div class="seg" role="group" aria-label="재생 속도" id="speedSeg" hidden>
+        <button data-sp="1" aria-pressed="true">1×</button>
+        <button data-sp="5" aria-pressed="false">5×</button>
+        <button data-sp="20" aria-pressed="false">20×</button>
+      </div>
+      <svg class="ring" viewBox="0 0 26 26" aria-hidden="true"><circle class="bgc" cx="13" cy="13" r="10"/><circle class="fg" id="ringFg" cx="13" cy="13" r="10" transform="rotate(-90 13 13)" stroke-dasharray="62.83" stroke-dashoffset="0"/></svg>
+      <button class="btn" id="refreshBtn">지금 갱신</button>
+    </div>
+  </header>
+
+  <div class="banner" id="banner"></div>
+
+  <section class="fleet">
+    <div class="panel summary">
+      <h2>전체 설비</h2>
+      <div class="counts" id="counts"></div>
+      <div class="fleetbar" id="fleetbar"></div>
+    </div>
+    <div class="equips" id="equips" role="group" aria-label="설비 선택"></div>
+  </section>
+
+  <div class="sel-head">
+    <span class="big" id="selId">-</span>
+    <span class="chip" id="selStatus">-</span>
+    <span class="sub" id="selTime"></span>
+  </div>
+  <section class="gauges" id="gauges"></section>
+
+  <section class="lower">
+    <div style="display:flex;flex-direction:column;gap:14px;min-width:0">
+      <div class="panel">
+        <div class="ph">
+          <h2 id="trendTitle">추이</h2>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <div class="seg" role="group" aria-label="지표 선택" id="metricSeg"></div>
+            <div class="seg" role="group" aria-label="표시 구간" id="winSeg">
+              <button data-win="30" aria-pressed="false">30</button>
+              <button data-win="60" aria-pressed="true">60</button>
+              <button data-win="120" aria-pressed="false">120</button>
+              <button data-win="0" aria-pressed="false">전체</button>
+            </div>
+          </div>
+        </div>
+        <div class="chartbox"><div id="trend"></div><div class="tip" id="tip"></div></div>
+      </div>
+      <div class="panel">
+        <div class="ph"><h2>구간 통계</h2><span class="meta" id="statRange"></span></div>
+        <div class="statwrap"><table class="stats" id="stats"></table></div>
+      </div>
+    </div>
+    <div class="side">
+      <div class="panel avail">
+        <h2 style="font-size:14px;margin:0 0 6px">가동률</h2>
+        <div class="pct" id="availPct">-</div>
+        <div class="stack" id="availStack"></div>
+        <div class="legend" id="availLegend"></div>
+      </div>
+      <div class="panel" style="flex:1;min-height:0">
+        <div class="ph"><h2>이벤트 기록</h2><span class="meta" id="evCount"></span></div>
+        <ul class="events" id="events"></ul>
+      </div>
+    </div>
+  </section>
+
+  <p class="foot">기준값은 스크립트 상단의 <code>METRICS</code>에서 바꿀 수 있습니다. 구글 시트의 "웹에 게시" CSV는 구글 측 캐시 때문에 시트 수정 후 반영까지 몇 분 걸릴 수 있습니다.</p>
+</div>
+
+<script>
+/* ===== 설정 ===== */
+const SRC = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTGim1CvDmJ4KQmHmrqhgQqFn0yqvJ-AyBbUUNLskvFNOk35hEeGrdWiEu_4QgEk44V0YpA9mdYU3iu/pub?output=csv";
+
+// 경고/경보 기준 (Lo 기준은 가동 중일 때만 적용)
+const METRICS = [
+  {key:"temp",     label:"온도",   unit:"°C",   min:0, max:100,  warnHi:60,  alarmHi:70,  d:1},
+  {key:"vib",      label:"진동",   unit:"mm/s", min:0, max:6,    warnHi:3.0, alarmHi:4.5, d:2},
+  {key:"pressure", label:"압력",   unit:"bar",  min:0, max:12,   warnLo:6.0, alarmLo:5.0, warnHi:8.5, alarmHi:9.5, d:2},
+  {key:"current",  label:"전류",   unit:"A",    min:0, max:40,   warnHi:28,  alarmHi:32,  d:1},
+  {key:"rpm",      label:"회전수", unit:"rpm",  min:0, max:2400, warnLo:1600, alarmLo:1500, warnHi:1800, alarmHi:1900, d:0},
+];
+
+// 네트워크 접속이 안 될 때 사용하는 스냅샷
+const SNAPSHOT = `timestamp,equip_id,temp,vib,pressure,current,rpm,status
+2026-03-01 0:00,P-01,51.25,1.906,7.127,23.72,1702.3,RUN
+2026-03-01 0:01,P-01,51.31,2.143,7.172,23.66,1691.5,RUN
+2026-03-01 0:02,P-01,52.12,2.111,7.216,23.9,1696.6,RUN
+2026-03-01 0:03,P-01,51.72,1.856,7.175,24.27,1709,RUN
+2026-03-01 0:04,P-01,51.14,1.893,6.997,24.66,1700.9,RUN
+2026-03-01 0:05,P-01,50.79,2.057,7.082,23.87,1698,RUN
+2026-03-01 0:06,P-01,52.16,1.886,7.114,24.09,1697.1,RUN
+2026-03-01 0:07,P-01,51.55,1.856,7.028,23.88,1699.8,RUN
+2026-03-01 0:08,P-01,51.6,1.875,7.144,24.01,1698.3,RUN
+2026-03-01 0:09,P-01,51.67,1.945,7.024,23.73,1690.3,RUN
+2026-03-01 0:10,P-01,51.88,2.208,7.108,24.06,1707.1,RUN
+2026-03-01 0:11,P-01,51.31,1.889,6.926,23.52,1698,RUN
+2026-03-01 0:12,P-01,51.18,1.961,7.305,23.75,1696.5,RUN
+2026-03-01 0:13,P-01,51.15,2.02,7.201,23.75,1693.8,RUN
+2026-03-01 0:14,P-01,51.22,1.89,7.072,24.36,1693,RUN
+2026-03-01 0:15,P-01,51.58,1.832,7.187,24.35,1697.6,RUN
+2026-03-01 0:16,P-01,51.43,2.018,6.99,24.04,1697.3,RUN
+2026-03-01 0:17,P-01,51.35,2.026,7.177,23.96,1690.4,RUN
+2026-03-01 0:18,P-01,51.54,1.941,7.223,24.24,1693,RUN
+2026-03-01 0:19,P-01,51.72,1.987,7.101,23.92,1687.1,RUN
+2026-03-01 0:20,P-01,51.49,1.982,7.145,23.34,1697.9,RUN
+2026-03-01 0:21,P-01,51.2,2.103,6.969,23.82,1694.9,RUN
+2026-03-01 0:22,P-01,52.51,1.882,7.148,23.75,1686,RUN
+2026-03-01 0:23,P-01,52.31,2.008,6.971,23.02,1689,RUN
+2026-03-01 0:24,P-01,51.78,2.023,6.983,23.56,1690.1,RUN
+2026-03-01 0:25,P-01,51.09,2.12,7.16,23.79,1684.1,RUN
+2026-03-01 0:26,P-01,50.93,2.182,6.971,23.67,1691.5,RUN
+2026-03-01 0:27,P-01,51.37,1.937,6.982,23.71,1687.3,RUN
+2026-03-01 0:28,P-01,52.07,2.089,7.067,24.27,1680.6,RUN
+2026-03-01 0:29,P-01,51.83,1.933,6.893,23.51,1683.3,RUN
+2026-03-01 0:30,P-01,51.59,1.957,6.825,23.39,1683.1,RUN
+2026-03-01 0:31,P-01,51.18,2.043,6.907,23.27,1680.1,RUN
+2026-03-01 0:32,P-01,50.95,2.063,6.987,24,1677.9,RUN
+2026-03-01 0:33,P-01,50.88,2.06,7.048,23.77,1677.6,RUN
+2026-03-01 0:34,P-01,51.64,2.041,6.89,23.54,1676.5,RUN
+2026-03-01 0:35,P-01,51.12,2.034,7.077,23.64,1686.5,RUN
+2026-03-01 0:36,P-01,51.82,1.917,7.046,23.54,1682.1,RUN
+2026-03-01 0:37,P-01,50.92,1.881,7.005,23.31,1675.1,RUN
+2026-03-01 0:38,P-01,51.47,1.982,6.951,23.87,1678.4,RUN
+2026-03-01 0:39,P-01,51.87,1.947,6.925,23.89,1681.8,RUN
+2026-03-01 0:40,P-01,51.13,2.009,6.999,23.8,1683.4,RUN
+2026-03-01 0:41,P-01,51.18,1.873,6.965,23.52,1686.3,RUN
+2026-03-01 0:42,P-01,50.98,1.877,7.057,23.11,1681.9,RUN
+2026-03-01 0:43,P-01,50.6,2.035,6.999,23.61,1686.6,RUN
+2026-03-01 0:44,P-01,50.69,2.194,7.041,23.54,1685.8,RUN
+2026-03-01 0:45,P-01,50.97,2.01,6.954,23.54,1682.4,RUN
+2026-03-01 0:46,P-01,50.51,1.783,6.946,23.48,1680.7,RUN
+2026-03-01 0:47,P-01,50.67,2.079,7.027,23.92,1691.1,RUN
+2026-03-01 0:48,P-01,50.78,1.837,7.04,24.08,1683.6,RUN
+2026-03-01 0:49,P-01,50.42,2.053,6.989,23.77,1683.5,RUN
+2026-03-01 0:50,P-01,51.25,2.095,6.916,23.75,1685.3,RUN
+2026-03-01 0:51,P-01,50.18,1.987,6.987,23.3,1685,RUN
+2026-03-01 0:52,P-01,50.71,2.081,6.919,23.6,1686.4,RUN
+2026-03-01 0:53,P-01,50.12,1.971,7.121,23.49,1684.6,RUN
+2026-03-01 0:54,P-01,50.08,2.171,7.006,23.41,1676.4,RUN
+2026-03-01 0:55,P-01,50.74,2.057,6.941,24.03,1686.2,RUN
+2026-03-01 0:56,P-01,50.87,2.035,7.002,23.9,1678.8,RUN
+2026-03-01 0:57,P-01,50.69,2.162,7.051,23.19,1687.8,RUN
+2026-03-01 0:58,P-01,50.64,2.077,6.918,23.54,1690.6,RUN
+2026-03-01 0:59,P-01,51.82,1.949,7.113,23.16,1687.4,RUN
+2026-03-01 1:00,P-01,51.15,2.136,6.968,24.29,1686.6,RUN
+2026-03-01 1:01,P-01,50.7,2.008,7.083,24.11,1683.3,RUN
+2026-03-01 1:02,P-01,50.64,1.95,6.98,23.78,1682.1,RUN
+2026-03-01 1:03,P-01,50.93,2.169,6.795,23.82,1677.7,RUN
+2026-03-01 1:04,P-01,51.06,1.774,6.968,23.86,1686.5,RUN
+2026-03-01 1:05,P-01,50.42,1.985,7.192,23.5,1687.5,RUN
+2026-03-01 1:06,P-01,50.31,1.97,6.958,23.64,1682.5,RUN
+2026-03-01 1:07,P-01,50.14,1.934,7.01,23.2,1688.9,RUN
+2026-03-01 1:08,P-01,50.77,1.736,7.027,23.94,1687,RUN
+2026-03-01 1:09,P-01,50.95,2.101,6.942,24.15,1683.9,RUN
+2026-03-01 1:10,P-01,51.04,2.049,6.822,23.76,1677.7,RUN
+2026-03-01 1:11,P-01,50.65,1.892,6.964,23.49,1684.4,RUN
+2026-03-01 1:12,P-01,50.58,1.919,6.96,23.83,1681.8,RUN
+2026-03-01 1:13,P-01,50.81,2.156,6.999,23.75,1689.6,RUN
+2026-03-01 1:14,P-01,50.31,2.212,7.011,23.6,1684.6,RUN
+2026-03-01 1:15,P-01,50.69,2.097,7.096,23.84,1681.9,RUN
+2026-03-01 1:16,P-01,50.7,1.914,7.219,23.68,1690.3,RUN
+2026-03-01 1:17,P-01,50.4,1.773,6.979,23.55,1683.4,RUN
+2026-03-01 1:18,P-01,51.04,1.953,7.018,23.66,1681.6,RUN
+2026-03-01 1:19,P-01,50.49,2,7.036,23.26,1683.1,RUN
+2026-03-01 1:20,P-01,50.55,1.97,7.007,23.69,1684.2,RUN
+2026-03-01 1:21,P-01,50.3,1.964,7.088,23.51,1685.4,RUN
+2026-03-01 1:22,P-01,50.51,1.993,7.019,24.02,1682.7,RUN
+2026-03-01 1:23,P-01,50.43,2.036,7.098,24.01,1683.5,RUN
+2026-03-01 1:24,P-01,49.82,1.888,7.069,24.14,1680.6,RUN
+2026-03-01 1:25,P-01,51,1.896,6.978,23.34,1679.4,RUN
+2026-03-01 1:26,P-01,50.45,2.139,6.883,23.64,1683.3,RUN
+2026-03-01 1:27,P-01,50.28,1.929,7.071,24.13,1680.8,RUN
+2026-03-01 1:28,P-01,50.88,2.053,6.928,23.77,1685,RUN
+2026-03-01 1:29,P-01,50.52,2.019,7.105,24,1683.1,RUN
+2026-03-01 1:30,P-01,50.8,1.957,7.059,23.53,1680.1,RUN
+2026-03-01 1:31,P-01,50.43,1.884,7.051,23.35,1683.2,RUN
+2026-03-01 1:32,P-01,50.8,1.929,6.985,23.89,1685.5,RUN
+2026-03-01 1:33,P-01,50.38,1.937,7.024,24.07,1691.6,RUN
+2026-03-01 1:34,P-01,50.96,2.016,6.864,24.31,1686.4,RUN
+2026-03-01 1:35,P-01,50.48,1.938,7.065,23.38,1682.3,RUN
+2026-03-01 1:36,P-01,50.19,1.89,7.096,23.86,1685.7,RUN
+2026-03-01 1:37,P-01,50.85,1.854,7.084,23.67,1678.5,RUN
+2026-03-01 1:38,P-01,51.1,2.003,6.959,23.37,1686.1,RUN
+2026-03-01 1:39,P-01,49.71,1.989,6.957,23.21,1673.8,RUN`;
+
+/* ===== 상태 ===== */
+const S = {
+  all: [], mode: "live", iv: 10, countdown: 10, speed: 1, replayIdx: 0,
+  sel: null, metric: "temp", win: 60, source: null, fetching: false, lastFetch: null
+};
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+/* ===== CSV ===== */
+function parseCSV(t){
+  const out=[]; let row=[], f="", q=false;
+  for(let i=0;i<t.length;i++){
+    const c=t[i];
+    if(q){ if(c==='"'){ if(t[i+1]==='"'){f+='"';i++;} else q=false; } else f+=c; }
+    else if(c==='"') q=true;
+    else if(c===','){ row.push(f); f=""; }
+    else if(c==='\n'||c==='\r'){ if(c==='\r'&&t[i+1]==='\n') i++; row.push(f); out.push(row); row=[]; f=""; }
+    else f+=c;
+  }
+  if(f!==""||row.length){ row.push(f); out.push(row); }
+  return out.filter(r => r.some(x => x.trim()!==""));
+}
+function parseTime(s){
+  const m = String(s).trim().match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  if(m) return new Date(+m[1], m[2]-1, +m[3], +m[4], +m[5], +(m[6]||0)).getTime();
+  const p = Date.parse(s); return isNaN(p) ? null : p;
+}
+function toRecords(text){
+  const rows = parseCSV(text); if(rows.length<2) return [];
+  const h = rows[0].map(x => x.trim().toLowerCase());
+  const ix = k => h.indexOf(k);
+  const need = ["timestamp","equip_id","temp","vib","pressure","current","rpm","status"];
+  if(need.some(k => ix(k)<0)) throw new Error("필요한 컬럼이 없습니다: " + need.filter(k=>ix(k)<0).join(", "));
+  const num = v => { const n = parseFloat(String(v).replace(/,/g,"")); return isFinite(n) ? n : null; };
+  const recs = [];
+  for(let i=1;i<rows.length;i++){
+    const r = rows[i], t = parseTime(r[ix("timestamp")]);
+    if(t==null) continue;
+    recs.push({ t, equip:(r[ix("equip_id")]||"").trim()||"미지정",
+      temp:num(r[ix("temp")]), vib:num(r[ix("vib")]), pressure:num(r[ix("pressure")]),
+      current:num(r[ix("current")]), rpm:num(r[ix("rpm")]),
+      status:(r[ix("status")]||"").trim().toUpperCase()||"N/A" });
+  }
+  recs.sort((a,b) => a.t-b.t || a.equip.localeCompare(b.equip));
+  return recs;
+}
+
+/* ===== 판정 ===== */
+function stClass(s){
+  if(/^(RUN|RUNNING|ON|NORMAL|OK|가동)$/.test(s)) return "run";
+  if(/^(WARN|WARNING|CAUTION|주의)$/.test(s)) return "warn";
+  if(/(ALARM|FAULT|TRIP|ERROR|ERR|ALERT|FAIL|경보|고장)/.test(s)) return "alarm";
+  return "idle";
+}
+const ST_KO = {RUN:"가동",RUNNING:"가동",STOP:"정지",STOPPED:"정지",IDLE:"대기",OFF:"정지",WARN:"주의",WARNING:"주의",ALARM:"경보",FAULT:"고장",TRIP:"트립",ERROR:"오류",MAINT:"정비"};
+const stLabel = s => ST_KO[s] || s;
+function level(m, v, running){
+  if(v==null) return "na";
+  if(m.alarmHi!=null && v>=m.alarmHi) return "alarm";
+  if(running && m.alarmLo!=null && v<=m.alarmLo) return "alarm";
+  if(m.warnHi!=null && v>=m.warnHi) return "warn";
+  if(running && m.warnLo!=null && v<=m.warnLo) return "warn";
+  return "ok";
+}
+function health(r){
+  if(!r) return 0;
+  const run = stClass(r.status)==="run";
+  let h = 100;
+  METRICS.forEach(m => { const l = level(m, r[m.key], run); if(l==="warn") h-=15; if(l==="alarm") h-=35; });
+  const sc = stClass(r.status);
+  if(sc==="alarm") h = Math.min(h, 25); else if(sc==="warn") h = Math.min(h, 60);
+  return Math.max(0, h);
+}
+function overall(r){
+  const sc = stClass(r.status); if(sc==="alarm") return "alarm";
+  const run = sc==="run";
+  const lv = METRICS.map(m => level(m, r[m.key], run));
+  if(lv.includes("alarm")) return "alarm";
+  if(sc==="warn"||lv.includes("warn")) return "warn";
+  return sc;
+}
+const fmt = (v,d) => v==null ? "-" : v.toLocaleString("ko-KR",{minimumFractionDigits:d,maximumFractionDigits:d});
+const hm = t => { const d=new Date(t); return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0"); };
+const full = t => { const d=new Date(t); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")} ${hm(t)}${d.getSeconds()?":"+String(d.getSeconds()).padStart(2,"0"):""}`; };
+
+/* ===== 데이터 ===== */
+function visible(){ return S.mode==="replay" ? S.all.slice(0, Math.max(1,S.replayIdx)) : S.all; }
+function groupBy(rows){ const g=new Map(); rows.forEach(r => { if(!g.has(r.equip)) g.set(r.equip,[]); g.get(r.equip).push(r); }); return g; }
+
+async function load(){
+  if(S.fetching) return; S.fetching = true;
+  $("#connText").textContent = "불러오는 중";
+  try{
+    const res = await fetch(SRC + "&_=" + Date.now(), {cache:"no-store"});
+    if(!res.ok) throw new Error("HTTP " + res.status);
+    const recs = toRecords(await res.text());
+    if(!recs.length) throw new Error("데이터 행이 없습니다");
+    S.all = recs; S.source = "live"; S.lastFetch = Date.now();
+    $("#banner").classList.remove("show");
+  }catch(e){
+    if(!S.all.length || S.source!=="live"){ S.all = toRecords(SNAPSHOT); S.source = "snapshot"; }
+    const b = $("#banner");
+    b.innerHTML = `구글 시트를 불러오지 못했습니다 (${esc(e.message)}). ` +
+      (S.source==="snapshot" ? "내장된 스냅샷 데이터로 표시합니다. 인터넷 연결과 시트의 ‘웹에 게시’ 설정을 확인하세요." : "마지막으로 받은 데이터를 유지하고 다음 주기에 다시 시도합니다.");
+    b.classList.add("show");
+  }finally{
+    S.fetching = false; S.countdown = S.iv;
+    if(S.mode==="replay" && S.replayIdx>S.all.length) S.replayIdx = 1;
+    render();
+  }
+}
+
+/* ===== 게이지 ===== */
+function polar(cx,cy,r,deg){ const a=(deg-90)*Math.PI/180; return [cx+r*Math.cos(a), cy+r*Math.sin(a)]; }
+function arc(cx,cy,r,a0,a1){
+  if(a1-a0 < .01) return "";
+  const [x0,y0]=polar(cx,cy,r,a0),[x1,y1]=polar(cx,cy,r,a1);
+  return `M${x0.toFixed(2)} ${y0.toFixed(2)} A${r} ${r} 0 ${a1-a0>180?1:0} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
+}
+const deg = (m,v) => -120 + 240 * (Math.min(m.max,Math.max(m.min,v)) - m.min) / (m.max - m.min);
+
+function buildGauges(){
+  $("#gauges").innerHTML = METRICS.map(m => {
+    let bands = "";
+    if(m.warnHi!=null) bands += `<path class="g-band-w" d="${arc(100,100,92,deg(m,m.warnHi),deg(m,m.alarmHi??m.max))}"/>`;
+    if(m.alarmHi!=null) bands += `<path class="g-band-a" d="${arc(100,100,92,deg(m,m.alarmHi),120)}"/>`;
+    if(m.warnLo!=null) bands += `<path class="g-band-w" d="${arc(100,100,92,deg(m,m.alarmLo??m.min),deg(m,m.warnLo))}"/>`;
+    if(m.alarmLo!=null) bands += `<path class="g-band-a" d="${arc(100,100,92,-120,deg(m,m.alarmLo))}"/>`;
+    let ticks = "";
+    for(let i=0;i<=4;i++){
+      const v = m.min + (m.max-m.min)*i/4, a = deg(m,v);
+      const [x0,y0]=polar(100,100,64,a),[x1,y1]=polar(100,100,70,a),[tx,ty]=polar(100,100,54,a);
+      ticks += `<line class="g-tick" x1="${x0}" y1="${y0}" x2="${x1}" y2="${y1}"/><text class="g-tl" x="${tx}" y="${ty+4}" text-anchor="middle">${v>=1000?(v/1000)+"k":+v.toFixed(1)}</text>`;
+    }
+    const lim = [m.warnLo!=null?`하한 ${m.warnLo}`:"", m.warnHi!=null?`주의 ${m.warnHi}`:"", m.alarmHi!=null?`경보 ${m.alarmHi}`:""].filter(Boolean).join(" / ");
+    return `<article class="panel gcard" id="gc-${m.key}">
+      <div class="ghead"><span class="nm">${m.label}</span><span class="un">${m.unit}</span></div>
+      <svg class="gauge" viewBox="0 0 200 158" role="img" aria-labelledby="gn-${m.key}">
+        <path class="g-track" d="${arc(100,100,78,-120,120)}"/>
+        ${bands}
+        <path class="g-val" id="gv-${m.key}" d=""/>
+        ${ticks}
+        <g class="g-needle" id="gnd-${m.key}" style="transform:rotate(-120deg)"><line x1="100" y1="104" x2="100" y2="44"/><circle cx="100" cy="100" r="5"/></g>
+        <text class="g-num" id="gn-${m.key}" x="100" y="150" text-anchor="middle">-</text>
+      </svg>
+      <div class="gfoot"><span class="delta" id="gd-${m.key}">-</span><svg class="spark" viewBox="0 0 84 24" preserveAspectRatio="none"><path id="gs-${m.key}" d=""/></svg></div>
+      <div class="limit">${lim} ${m.unit}</div>
+    </article>`;
+  }).join("");
+}
+function sparkPath(vals,w,h){
+  const v = vals.filter(x=>x!=null); if(v.length<2) return "";
+  const mn=Math.min(...v), mx=Math.max(...v), rg=(mx-mn)||1;
+  return vals.map((x,i)=> x==null?"":`${i&&vals[i-1]!=null?"L":"M"}${(i/(vals.length-1)*w).toFixed(1)} ${(h-2-(x-mn)/rg*(h-4)).toFixed(1)}`).join("");
+}
+
+/* ===== 렌더 ===== */
+const COLORS = {run:"var(--run)",warn:"var(--warn)",alarm:"var(--alarm)",idle:"var(--idle)"};
+
+function render(){
+  const rows = visible();
+  const g = groupBy(rows);
+  const ids = [...g.keys()].sort();
+  if(!S.sel || !g.has(S.sel)) S.sel = ids[0] || null;
+
+  // 헤더
+  const last = rows[rows.length-1];
+  $("#lastTs").textContent = last ? full(last.t) : "-";
+  $("#rowCount").textContent = rows.length.toLocaleString("ko-KR");
+  const lamp = $("#lamp"); lamp.className = "lamp " + (S.mode==="replay" ? "live" : S.source==="live" ? "live" : "err");
+  $("#connText").textContent = S.mode==="replay" ? `재생 중 ${S.replayIdx}/${S.all.length}` :
+    S.source==="live" ? `시트 연동 중, ${S.lastFetch?new Date(S.lastFetch).toLocaleTimeString("ko-KR"):""} 수신` : "스냅샷 표시 중";
+
+  // 전체 설비 요약
+  const latest = ids.map(id => g.get(id)[g.get(id).length-1]);
+  const cnt = {run:0,warn:0,alarm:0,idle:0};
+  latest.forEach(r => cnt[overall(r)]++);
+  const names = {run:"정상 가동",warn:"주의",alarm:"경보",idle:"정지/대기"};
+  $("#counts").innerHTML = Object.keys(cnt).map(k => `<div class="count"><div class="n">${cnt[k]}</div><div class="l"><i style="background:${COLORS[k]}"></i>${names[k]}</div></div>`).join("");
+  $("#fleetbar").innerHTML = ids.length ? Object.keys(cnt).map(k => `<span style="width:${cnt[k]/ids.length*100}%;background:${COLORS[k]}"></span>`).join("") : "";
+
+  $("#equips").innerHTML = latest.map(r => {
+    const o = overall(r), h = health(r), run = stClass(r.status)==="run";
+    const lt = level(METRICS[0], r.temp, run), lv = level(METRICS[1], r.vib, run);
+    return `<button class="eq" data-eq="${esc(r.equip)}" aria-pressed="${r.equip===S.sel}">
+      <div class="row1"><span class="id">${esc(r.equip)}</span><span class="chip ${o}">${o==="run"?stLabel(r.status):o==="idle"?stLabel(r.status):names[o]}</span></div>
+      <div class="health"><span>건전성</span><span class="hbar"><span style="width:${h}%;background:${h<40?"var(--alarm)":h<75?"var(--warn)":"var(--ink-2)"}"></span></span><span class="hnum">${h}</span></div>
+      <div class="mini"><span>온도 <b class="${lt}">${fmt(r.temp,1)}</b></span><span>진동 <b class="${lv}">${fmt(r.vib,2)}</b></span></div>
+    </button>`;
+  }).join("") || `<div class="empty">표시할 설비가 없습니다. 시트에 데이터 행을 추가하세요.</div>`;
+
+  if(!S.sel) return;
+  const series = g.get(S.sel), cur = series[series.length-1], prev = series[series.length-2];
+  const run = stClass(cur.status)==="run";
+
+  // 선택 설비
+  $("#selId").textContent = S.sel;
+  const sc = $("#selStatus"); sc.className = "chip " + stClass(cur.status); sc.textContent = stLabel(cur.status);
+  $("#selTime").textContent = full(cur.t) + " 기준";
+
+  METRICS.forEach(m => {
+    const v = cur[m.key], lv = level(m, v, run);
+    const card = $("#gc-"+m.key); card.classList.remove("warn","alarm"); if(lv==="warn"||lv==="alarm") card.classList.add(lv);
+    const vp = $("#gv-"+m.key); vp.setAttribute("d", v==null?"":arc(100,100,78,-120,deg(m,v))); vp.setAttribute("class","g-val "+(lv==="ok"||lv==="na"?"":lv));
+    $("#gnd-"+m.key).style.transform = `rotate(${v==null?-120:deg(m,v)}deg)`;
+    const n = $("#gn-"+m.key); n.textContent = fmt(v,m.d); n.setAttribute("class","g-num "+(lv==="ok"||lv==="na"?"":lv));
+    const dEl = $("#gd-"+m.key);
+    if(prev && v!=null && prev[m.key]!=null){
+      const d = v - prev[m.key];
+      dEl.textContent = (d>0?"▲ ":d<0?"▼ ":"= ") + fmt(Math.abs(d), m.d);
+      dEl.style.color = "var(--muted)";
+    } else dEl.textContent = "-";
+    $("#gs-"+m.key).setAttribute("d", sparkPath(series.slice(-30).map(r=>r[m.key]),84,24));
+  });
+
+  renderTrend(series);
+  renderStats(series);
+  renderAvail(series);
+  renderEvents(g);
+}
+
+function windowed(series){ return S.win ? series.slice(-S.win) : series; }
+
+function renderTrend(series){
+  const m = METRICS.find(x=>x.key===S.metric);
+  $("#trendTitle").textContent = `${S.sel} ${m.label} 추이 (${m.unit})`;
+  const data = windowed(series), el = $("#trend");
+  const W = Math.max(320, el.clientWidth||700), H = 280, L=50, R=16, T=14, B=28;
+  const vals = data.map(r=>r[m.key]).filter(v=>v!=null);
+  if(vals.length<2){ el.innerHTML = `<div class="empty">추이를 그리려면 데이터가 2개 이상 필요합니다.</div>`; return; }
+  let mn = Math.min(...vals), mx = Math.max(...vals);
+  const span = (mx-mn) || Math.abs(mx)*.05 || 1;
+  // 데이터 범위와 가까운 기준선은 화면에 포함
+  [m.warnHi,m.alarmHi,m.warnLo,m.alarmLo].forEach(t => { if(t!=null && t>mn-span*1.5 && t<mx+span*1.5){ mn=Math.min(mn,t); mx=Math.max(mx,t); } });
+  const pad = (mx-mn||1)*.12; mn-=pad; mx+=pad;
+  const x = i => L + (W-L-R) * (data.length===1?0:i/(data.length-1));
+  const y = v => T + (H-T-B) * (1-(v-mn)/(mx-mn));
+  let grid = "";
+  for(let i=0;i<=4;i++){ const v = mn+(mx-mn)*i/4; grid += `<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}"/><text class="ax" x="${L-8}" y="${y(v)+4}" text-anchor="end">${fmt(v,m.d>1?1:m.d)}</text>`; }
+  let xl = ""; const nT = Math.min(6, data.length);
+  for(let i=0;i<nT;i++){ const k = Math.round(i*(data.length-1)/(nT-1||1)); xl += `<text class="ax" x="${x(k)}" y="${H-8}" text-anchor="middle">${hm(data[k].t)}</text>`; }
+  let line="", started=false;
+  data.forEach((r,i)=>{ const v=r[m.key]; if(v==null){started=false;return;} line += `${started?"L":"M"}${x(i).toFixed(1)} ${y(v).toFixed(1)}`; started=true; });
+  const firstI = data.findIndex(r=>r[m.key]!=null), lastI = data.length-1-[...data].reverse().findIndex(r=>r[m.key]!=null);
+  const area = line + `L${x(lastI)} ${H-B}L${x(firstI)} ${H-B}Z`;
+  const avg = vals.reduce((a,b)=>a+b,0)/vals.length;
+  let thr = "";
+  const addThr = (t,cls,lab) => { if(t==null||t<mn||t>mx) return; thr += `<line class="${cls}" x1="${L}" x2="${W-R}" y1="${y(t)}" y2="${y(t)}"/><text class="thr-lab" x="${W-R-4}" y="${y(t)-4}" text-anchor="end" fill="${cls==="thr-a"?"var(--alarm)":"var(--warn)"}">${lab} ${t}</text>`; };
+  addThr(m.warnHi,"thr-w","주의"); addThr(m.alarmHi,"thr-a","경보"); addThr(m.warnLo,"thr-w","하한 주의"); addThr(m.alarmLo,"thr-a","하한 경보");
+  const dots = data.map((r,i)=>{ const lv = level(m,r[m.key],stClass(r.status)==="run"); return (lv==="warn"||lv==="alarm") ? `<circle cx="${x(i)}" cy="${y(r[m.key])}" r="3.5" fill="${COLORS[lv]}"/>` : ""; }).join("");
+  const lr = data[lastI];
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="${m.label} 추이 그래프">
+    <g class="grid">${grid}</g>${xl}
+    <path class="tarea" d="${area}"/>
+    <line class="mean" x1="${L}" x2="${W-R}" y1="${y(avg)}" y2="${y(avg)}"/>
+    ${thr}
+    <path class="tline" d="${line}"/>${dots}
+    <circle cx="${x(lastI)}" cy="${y(lr[m.key])}" r="4.5" fill="var(--accent)" stroke="var(--panel)" stroke-width="2"/>
+    <g class="hov" id="hov" style="display:none"><line id="hovL" y1="${T}" y2="${H-B}"/><circle id="hovC" r="4.5" fill="var(--ink)"/></g>
+    <rect id="hit" x="${L}" y="${T}" width="${W-L-R}" height="${H-T-B}" fill="transparent"/>
+  </svg>`;
+  const hit = $("#hit"), tip = $("#tip"), svg = el.querySelector("svg");
+  const move = ev => {
+    const rc = svg.getBoundingClientRect(), px = (ev.clientX - rc.left) * W / rc.width;
+    const i = Math.max(0, Math.min(data.length-1, Math.round((px-L)/(W-L-R)*(data.length-1))));
+    const r = data[i]; if(r[m.key]==null) return;
+    $("#hov").style.display = ""; $("#hovL").setAttribute("x1",x(i)); $("#hovL").setAttribute("x2",x(i));
+    $("#hovC").setAttribute("cx",x(i)); $("#hovC").setAttribute("cy",y(r[m.key]));
+    tip.innerHTML = `${full(r.t)}<br><b>${fmt(r[m.key],m.d)}</b> ${m.unit} &nbsp;${esc(stLabel(r.status))}`;
+    tip.style.display = "block";
+    const left = x(i)*rc.width/W + 8;
+    tip.style.left = Math.min(left, rc.width - tip.offsetWidth) + "px";
+    tip.style.top = (y(r[m.key])*rc.height/H - 50) + "px";
+  };
+  hit.addEventListener("mousemove", move);
+  hit.addEventListener("mouseleave", () => { tip.style.display="none"; $("#hov").style.display="none"; });
+}
+
+function renderStats(series){
+  const data = windowed(series);
+  $("#statRange").textContent = data.length ? `${hm(data[0].t)} ~ ${hm(data[data.length-1].t)}, ${data.length}개 측정값` : "";
+  const cur = series[series.length-1], run = stClass(cur.status)==="run";
+  $("#stats").innerHTML = `<tr><th>지표</th><th>현재</th><th>평균</th><th>최소</th><th>최대</th><th>표준편차</th><th>기준 이탈</th></tr>` +
+    METRICS.map(m => {
+      const v = data.map(r=>r[m.key]).filter(x=>x!=null);
+      if(!v.length) return `<tr><td>${m.label}</td><td colspan="6">-</td></tr>`;
+      const avg = v.reduce((a,b)=>a+b,0)/v.length, sd = Math.sqrt(v.reduce((a,b)=>a+(b-avg)**2,0)/v.length);
+      const out = data.filter(r => { const l = level(m,r[m.key],stClass(r.status)==="run"); return l==="warn"||l==="alarm"; }).length;
+      const lv = level(m,cur[m.key],run);
+      return `<tr><td>${m.label} <span style="color:var(--muted);font-size:12px">${m.unit}</span></td>
+        <td class="${lv}">${fmt(cur[m.key],m.d)}</td><td>${fmt(avg,m.d)}</td><td>${fmt(Math.min(...v),m.d)}</td><td>${fmt(Math.max(...v),m.d)}</td><td>${fmt(sd,m.d+1)}</td>
+        <td class="${out?"warn":""}">${out}</td></tr>`;
+    }).join("");
+}
+
+function renderAvail(series){
+  const data = windowed(series), c = {};
+  data.forEach(r => c[r.status] = (c[r.status]||0)+1);
+  const runN = data.filter(r=>stClass(r.status)==="run").length;
+  $("#availPct").innerHTML = data.length ? `${(runN/data.length*100).toFixed(1)}<small>%</small>` : "-";
+  const keys = Object.keys(c).sort((a,b)=>c[b]-c[a]);
+  const shade = (k,i) => { const s = stClass(k); return s==="idle" && i%2 ? "color-mix(in srgb,var(--idle) 60%,var(--panel))" : COLORS[s]; };
+  $("#availStack").innerHTML = keys.map((k,i)=>`<span style="width:${c[k]/data.length*100}%;background:${shade(k,i)}" title="${esc(stLabel(k))} ${c[k]}"></span>`).join("");
+  $("#availLegend").innerHTML = keys.map((k,i)=>`<span><i style="background:${shade(k,i)}"></i>${esc(stLabel(k))} ${c[k]}회 (${(c[k]/data.length*100).toFixed(0)}%)</span>`).join("");
+}
+
+function renderEvents(g){
+  const ev = [];
+  const lvName = {warn:"주의",alarm:"경보"};
+  g.forEach((series, id) => {
+    const prevLv = {}; let prevSt = null;
+    series.forEach(r => {
+      const run = stClass(r.status)==="run";
+      if(prevSt!==null && r.status!==prevSt) ev.push({t:r.t, eq:id, cls:stClass(r.status), msg:`상태 변경 ${stLabel(prevSt)} → ${stLabel(r.status)}`});
+      prevSt = r.status;
+      METRICS.forEach(m => {
+        const v = r[m.key], lv = level(m, v, run), p = prevLv[m.key] || "ok";
+        if(lv==="na") return;
+        if(lv!==p){
+          if(lv==="ok") ev.push({t:r.t, eq:id, cls:"run", msg:`${m.label} 정상 복귀 (${fmt(v,m.d)} ${m.unit})`});
+          else ev.push({t:r.t, eq:id, cls:lv, msg:`${m.label} ${lvName[lv]} ${fmt(v,m.d)} ${m.unit}`});
+        }
+        prevLv[m.key] = lv;
+      });
+    });
+  });
+  ev.sort((a,b)=>b.t-a.t);
+  const alarms = ev.filter(e=>e.cls==="alarm").length, warns = ev.filter(e=>e.cls==="warn").length;
+  $("#evCount").textContent = `경보 ${alarms}건, 주의 ${warns}건`;
+  $("#events").innerHTML = ev.length ? ev.slice(0,60).map(e => `<li><span class="mk ${e.cls}"></span><span class="tm">${hm(e.t)}</span><span class="eqn">${esc(e.eq)}</span><span>${esc(e.msg)}</span></li>`).join("")
+    : `<li style="display:block" class="empty">기준을 벗어난 측정값이나 상태 변경이 없습니다.</li>`;
+}
+
+/* ===== 컨트롤 ===== */
+function press(group, btn){ group.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", b===btn)); }
+$("#metricSeg").innerHTML = METRICS.map(m => `<button data-m="${m.key}" aria-pressed="${m.key===S.metric}">${m.label}</button>`).join("");
+$("#metricSeg").addEventListener("click", e => { const b=e.target.closest("button"); if(!b) return; S.metric=b.dataset.m; press($("#metricSeg"),b); render(); });
+$("#winSeg").addEventListener("click", e => { const b=e.target.closest("button"); if(!b) return; S.win=+b.dataset.win; press($("#winSeg"),b); render(); });
+$("#intervalSeg").addEventListener("click", e => { const b=e.target.closest("button"); if(!b) return; S.iv=+b.dataset.iv; S.countdown=S.iv; press($("#intervalSeg"),b); });
+$("#speedSeg").addEventListener("click", e => { const b=e.target.closest("button"); if(!b) return; S.speed=+b.dataset.sp; press($("#speedSeg"),b); startReplay(); });
+$("#equips").addEventListener("click", e => { const b=e.target.closest(".eq"); if(!b) return; S.sel=b.dataset.eq; render(); });
+$("#refreshBtn").addEventListener("click", load);
+document.querySelector('[aria-label="데이터 모드"]').addEventListener("click", e => {
+  const b = e.target.closest("button"); if(!b) return;
+  S.mode = b.dataset.mode; press(b.parentElement, b);
+  $("#speedSeg").hidden = S.mode!=="replay"; $("#intervalSeg").hidden = S.mode==="replay";
+  if(S.mode==="replay"){ S.replayIdx = Math.min(30, S.all.length); startReplay(); } else { stopReplay(); }
+  render();
+});
+
+let replayTimer = null;
+function startReplay(){ stopReplay(); replayTimer = setInterval(() => { S.replayIdx = S.replayIdx>=S.all.length ? 1 : S.replayIdx+1; render(); }, 1000/S.speed); }
+function stopReplay(){ if(replayTimer) clearInterval(replayTimer); replayTimer = null; }
+
+// 갱신 카운트다운
+setInterval(() => {
+  const ring = $("#ringFg");
+  if(S.mode!=="live"){ ring.setAttribute("stroke-dashoffset", 0); return; }
+  S.countdown--;
+  ring.setAttribute("stroke-dashoffset", (62.83*(1-S.countdown/S.iv)).toFixed(2));
+  if(S.countdown<=0) load();
+}, 1000);
+
+let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(render, 150); });
+document.addEventListener("visibilitychange", () => { if(!document.hidden && S.mode==="live") load(); });
+
+buildGauges();
+load();
+</script>
+</body>
+</html>
